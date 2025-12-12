@@ -1,3 +1,4 @@
+import datetime
 import streamlit as st
 import pandas as pd
 import io
@@ -355,10 +356,15 @@ if f_terrain and f_info:
                 buffer_maj = io.BytesIO()
                 with pd.ExcelWriter(buffer_maj, engine='xlsxwriter') as writer:
                     formatter_excel_maj(df_export, writer, "Inventaire_Complet")
+                
+                # Format : Jour-Mois-Année_HeurehMinute (ex: 12-12-2025_15h30)
+                date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
+                nom_fichier_final = f"Inventaire_Base_{date_str}.xlsx"
+
                 st.download_button(
                     "Mise à jour de l'inventaire terrain", 
                     buffer_maj, 
-                    "Inventaire_terrain.xlsx", 
+                    nom_fichier_final,
                     mime="application/vnd.ms-excel", 
                     type="primary", 
                     use_container_width=True
