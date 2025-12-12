@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import io
 import warnings
-
+from datetime import datetime
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Comparateur Stock", layout="wide")
 warnings.filterwarnings("ignore")
