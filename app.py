@@ -222,7 +222,8 @@ if f_terrain and f_info:
             with pd.ExcelWriter(buffer_rapport, engine='xlsxwriter') as writer:
                 export_rpt = edited_df[['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Qte_Info', 'Ecart_Final']]
                 formatter_excel(export_rpt, writer, "Rapport Ecarts")
-                date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
+                date_str = datetime.now().strftime("%d-%m-%Y_%HH"
+                "%M")
                 nom_fichier_rapport = f"Rapport_Ecarts_{date_str}.xlsx"
             st.download_button("Télécharger Rapport", buffer_rapport, nom_fichier_rapport, mime="application/vnd.ms-excel", use_container_width=True)
 
