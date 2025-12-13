@@ -112,9 +112,9 @@ st.title("Stock Master")
 
 col_up1, col_up2 = st.columns(2)
 with col_up1:
-    f_terrain = st.file_uploader("Inventaire TERRAIN", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="t_up")
+    f_terrain = st.file_uploader("STOCK MAGASIN", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="t_up")
 with col_up2:
-    f_info = st.file_uploader("Inventaire INFORMATIQUE", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="i_up")
+    f_info = st.file_uploader("STOCK POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="i_up")
 
 if f_terrain and f_info:
     df_t_raw = charger_fichier(f_terrain)
@@ -376,11 +376,11 @@ if f_terrain and f_info:
                 with pd.ExcelWriter(buffer_maj, engine='xlsxwriter') as writer:
                     formatter_excel_maj(df_export, writer, "Inventaire_Complet")
                 
-                date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
-                nom_fichier_final = f"Inventaire_Base_{date_str}.xlsx"
+                date_str = datetime.now().strftime("%d-%m-%Y %HH%M")
+                nom_fichier_final = f"STOCK MAGASIN {date_str}.xlsx"
                 
                 st.download_button(
-                    "Mise à jour de l'inventaire terrain", 
+                    "Mise à jour du stock magasin", 
                     buffer_maj, 
                     nom_fichier_final, 
                     mime="application/vnd.ms-excel", 
