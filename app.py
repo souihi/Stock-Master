@@ -1,4 +1,3 @@
-import datetime
 import streamlit as st
 import pandas as pd
 import io
@@ -223,7 +222,9 @@ if f_terrain and f_info:
             with pd.ExcelWriter(buffer_rapport, engine='xlsxwriter') as writer:
                 export_rpt = edited_df[['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Qte_Info', 'Ecart_Final']]
                 formatter_excel(export_rpt, writer, "Rapport Ecarts")
-            st.download_button("Télécharger Rapport", buffer_rapport, "Rapport_Ecarts.xlsx", mime="application/vnd.ms-excel", use_container_width=True)
+                date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
+                nom_fichier_rapport = f"Rapport_Ecarts_{date_str}.xlsx"
+            st.download_button("Télécharger Rapport", buffer_rapport, nom_fichier_rapport, mime="application/vnd.ms-excel", use_container_width=True)
 
     with c2:
             st.subheader("2. Fichier Final")
@@ -243,26 +244,31 @@ if f_terrain and f_info:
                 df_valid_full = df_global[df_global['Qte_Info'] != 0].copy()
                 
                 # 3. IDENTIFICATION DES COLONNES METADATA
-                # On détecte explicitement la colonne 'Réservée'
                 col_ean_i = trouver_colonne(df_i_raw, ['ean', 'code_barre', 'gencod'])
                 col_ser_i = trouver_colonne(df_i_raw, ['serie', 'serial', 's/n'])
                 col_emp_i = trouver_colonne(df_i_raw, ['emplacement', 'rack', 'allee', 'localisation'])
                 col_site_i = trouver_colonne(df_i_raw, ['site', 'magasin', 'depot'])
-                col_res_i = trouver_colonne(df_i_raw, ['reserve', 'réserv', 'alloue']) # AJOUT ICI
+                col_res_i = trouver_colonne(df_i_raw, ['reserve', 'réserv', 'alloue'])
+                # --- AJOUT DES NOUVELLES COLONNES ---
+                col_dispo_i = trouver_colonne(df_i_raw, ['dispo', 'utilisable']) 
+                col_um_i = trouver_colonne(df_i_raw, ['um', 'unite', 'uom'])
 
                 col_ean_t = trouver_colonne(df_t_raw, ['ean', 'code_barre', 'gencod'])
                 col_ser_t = trouver_colonne(df_t_raw, ['serie', 'serial', 's/n'])
                 col_emp_t = trouver_colonne(df_t_raw, ['emplacement', 'rack', 'allee', 'localisation'])
                 col_site_t = trouver_colonne(df_t_raw, ['site', 'magasin', 'depot'])
+                col_um_t = trouver_colonne(df_t_raw, ['um', 'unite', 'uom']) # On cherche l'UM terrain aussi
 
                 # 4. PRÉPARATION DE LA BASE INFORMATIQUE
                 df_base = df_i_raw.copy()
                 df_base['Code_Join'] = df_base[ic_code].apply(formater_sans_decimale)
                 df_base['Lot_Join'] = df_base[ic_lot].apply(nettoyer_lot)
                 
-                # Formatage propre Info
                 if col_ean_i: df_base[col_ean_i] = df_base[col_ean_i].apply(formater_sans_decimale)
                 if col_ser_i: df_base[col_ser_i] = df_base[col_ser_i].apply(formater_sans_decimale)
+
+                # Anti-doublon essentiel
+                df_base = df_base.drop_duplicates(subset=['Code_Join', 'Lot_Join'])
 
                 # 5. PRÉPARATION DE LA BASE TERRAIN (Secours)
                 df_backup = df_t_raw.copy()
@@ -271,6 +277,8 @@ if f_terrain and f_info:
                 
                 if col_ean_t: df_backup[col_ean_t] = df_backup[col_ean_t].apply(formater_sans_decimale)
                 if col_ser_t: df_backup[col_ser_t] = df_backup[col_ser_t].apply(formater_sans_decimale)
+
+                df_backup = df_backup.drop_duplicates(subset=['Code_Join', 'Lot_Join'])
 
                 # 6. FUSION ROBUSTE
                 df_step1 = pd.merge(
@@ -311,7 +319,19 @@ if f_terrain and f_info:
                     elif col == ic_lib:
                         df_export[col] = df_final_rich['Libellé']
 
-                    # B. EAN & SERIE (Info -> Terrain)
+                    # B. QUANTITÉ DISPONIBLE (NEW) -> Egale au stock
+                    elif col_dispo_i and col == col_dispo_i:
+                         # On applique simplement la quantité stock validée
+                         df_export[col] = df_final_rich['Qte_Info']
+
+                    # C. UNITÉ DE MESURE (NEW) -> Info sinon Terrain
+                    elif col_um_i and col == col_um_i:
+                        val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
+                        val_t = df_final_rich[col_um_t + '_terr'] if col_um_t and (col_um_t + '_terr') in df_final_rich.columns else pd.NA
+                        # Si vide, on met 'pcs' par défaut ou vide
+                        df_export[col] = val_i.fillna(val_t).fillna("")
+
+                    # D. EAN & SERIE
                     elif col_ean_i and col == col_ean_i:
                         val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
                         val_t = df_final_rich[col_ean_t + '_terr'] if col_ean_t and (col_ean_t + '_terr') in df_final_rich.columns else pd.NA
@@ -322,21 +342,20 @@ if f_terrain and f_info:
                         val_t = df_final_rich[col_ser_t + '_terr'] if col_ser_t and (col_ser_t + '_terr') in df_final_rich.columns else pd.NA
                         df_export[col] = val_i.fillna(val_t).fillna("")
 
-                    # C. EMPLACEMENT
+                    # E. EMPLACEMENT
                     elif col_emp_i and col == col_emp_i:
                         val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
                         val_t = df_final_rich[col_emp_t + '_terr'] if col_emp_t and (col_emp_t + '_terr') in df_final_rich.columns else pd.NA
                         df_export[col] = val_i.fillna(val_t).fillna("")
 
-                    # D. SITE
+                    # F. SITE
                     elif col_site_i and col == col_site_i:
                         val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
                         val_t = df_final_rich[col_site_t + '_terr'] if col_site_t and (col_site_t + '_terr') in df_final_rich.columns else pd.NA
                         df_export[col] = val_i.fillna(val_t).fillna(default_site)
 
-                    # E. QUANTITE RESERVEE (AJOUT SPÉCIFIQUE)
+                    # G. QUANTITE RESERVEE
                     elif col_res_i and col == col_res_i:
-                        # Si la colonne existe, on prend la valeur, sinon 0
                         if col in df_final_rich.columns:
                             df_export[col] = df_final_rich[col].fillna(0)
                         elif f"{col}_info" in df_final_rich.columns:
@@ -344,7 +363,7 @@ if f_terrain and f_info:
                         else:
                             df_export[col] = 0
 
-                    # F. LE RESTE
+                    # H. LE RESTE
                     else:
                         if col in df_final_rich.columns:
                             df_export[col] = df_final_rich[col]
@@ -357,14 +376,13 @@ if f_terrain and f_info:
                 with pd.ExcelWriter(buffer_maj, engine='xlsxwriter') as writer:
                     formatter_excel_maj(df_export, writer, "Inventaire_Complet")
                 
-                # Format : Jour-Mois-Année_HeurehMinute (ex: 12-12-2025_15h30)
                 date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
                 nom_fichier_final = f"Inventaire_Base_{date_str}.xlsx"
-
+                
                 st.download_button(
                     "Mise à jour de l'inventaire terrain", 
                     buffer_maj, 
-                    nom_fichier_final,
+                    nom_fichier_final, 
                     mime="application/vnd.ms-excel", 
                     type="primary", 
                     use_container_width=True
