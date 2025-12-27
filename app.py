@@ -1,13 +1,15 @@
 import streamlit as st
+import time
+import streamlit.components.v1 as components
 import pandas as pd
 import io
-import warnings
 from datetime import datetime
+from backend import StockProcessor
+
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Comparateur Stock", layout="wide")
-warnings.filterwarnings("ignore")
 
-# --- CSS ---
+# --- CSS---
 st.markdown("""
     <style>
     .metric-box {
@@ -27,368 +29,262 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- FONCTIONS ---
-def formater_sans_decimale(valeur):
-    """Formatte EAN/Série : enlève .0 et la notation scientifique (E+)"""
-    if pd.isna(valeur) or valeur == "": 
-        return ""
-    
-    # Conversion en chaine
-    txt = str(valeur).strip()
-    
-    # Cas de la notation scientifique (ex: 3,41E+12 ou 3.41E+12)
-    if "E+" in txt.upper():
-        try:
-            # On remplace la virgule par un point pour que Python comprenne
-            txt_clean = txt.replace(',', '.')
-            return "{:.0f}".format(float(txt_clean))
-        except:
-            pass # Si erreur, on rend le texte tel quel
-            
-    # Cas du .0 à la fin
-    if txt.endswith('.0'):
-        return txt[:-2]
-        
-    return txt
-def nettoyer_lot(valeur):
-    """Normalise les noms de lots"""
-    if pd.isna(valeur): return "SANS_LOT"
-    val = str(valeur).strip().upper()
-    if val in ['STOCK+RECYCL0', 'RECYCL0', 'STOCK RECYCL0', 'STOCK+RECYCLO']:
-        return 'STOCK'
-    if val == '' or val == 'NAN': return "SANS_LOT"
-    return val
+# --- SESSION STATE ---
+if 'history' not in st.session_state:
+    st.session_state.history = []
+if 'current_search' not in st.session_state:
+    st.session_state.current_search = None
+if 'scan_input' not in st.session_state:
+    st.session_state.scan_input = ""
 
-def charger_fichier(file):
-    try:
-        if file.name.endswith('.csv'):
-            df = pd.read_csv(file, header=None, nrows=20)
-        else:
-            df = pd.read_excel(file, header=None, nrows=20)
-        
-        header_idx = 0
-        for i, row in df.iterrows():
-            row_str = row.astype(str).str.lower().str.cat(sep=' ')
-            if 'code' in row_str and ('lot' in row_str or 'article' in row_str):
-                header_idx = i
-                break
-        
-        if file.name.endswith('.csv'):
-            file.seek(0)
-            df = pd.read_csv(file, header=header_idx)
-        else:
-            df = pd.read_excel(file, header=header_idx)
-            
-        df.columns = df.columns.astype(str).str.strip().str.lower()
-        return df
-    except:
-        return None
-
-def trouver_colonne(df, keywords):
-    for col in df.columns:
-        for k in keywords:
-            if k in col: return col
-    return None
-
-def formatter_excel(df, writer, sheet_name):
-    df.to_excel(writer, sheet_name=sheet_name, index=False)
-    worksheet = writer.sheets[sheet_name]
-    worksheet.set_column('A:A', 30) 
-    worksheet.set_column('B:B', 70) 
-    worksheet.set_column('C:C', 30) 
-    worksheet.set_column('D:F', 20) 
-
-def formatter_excel_maj(df, writer, sheet_name):
-    df.to_excel(writer, sheet_name=sheet_name, index=False)
-    worksheet = writer.sheets[sheet_name]
-    worksheet.set_column('A:A', 15) 
-    worksheet.set_column('B:B', 15) 
-    worksheet.set_column('C:C', 15) 
-    worksheet.set_column('D:D', 50) # Libellé large
-    worksheet.set_column('E:Z', 15)
+processor = StockProcessor()
 
 # --- APPLICATION ---
-st.title("Stock Master")
+st.title("STOCKITO")
 
-col_up1, col_up2 = st.columns(2)
-with col_up1:
-    f_terrain = st.file_uploader("STOCK MAGASIN", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="t_up")
-with col_up2:
-    f_info = st.file_uploader("STOCK POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="i_up")
+# Création des onglets
+tab_global, tab_tournant = st.tabs(["MAGASIN VS POUS", "INVENTAIRE TOURNANT"])
 
-if f_terrain and f_info:
-    df_t_raw = charger_fichier(f_terrain)
-    df_i_raw = charger_fichier(f_info)
 
-    if df_t_raw is not None and df_i_raw is not None:
-        # Identification Colonnes
-        tc_code = trouver_colonne(df_t_raw, ['code', 'article', 'ref'])
-        tc_lot = trouver_colonne(df_t_raw, ['lot', 'serie', 'batch'])
-        tc_qte = trouver_colonne(df_t_raw, ['qte', 'quant', 'stock'])
-        tc_lib = trouver_colonne(df_t_raw, ['lib', 'designation', 'nom'])
-        
-        ic_code = trouver_colonne(df_i_raw, ['code', 'article', 'ref'])
-        ic_lot = trouver_colonne(df_i_raw, ['lot', 'serie', 'batch'])
-        ic_qte = trouver_colonne(df_i_raw, ['qte', 'quant', 'stock'])
-        ic_lib = trouver_colonne(df_i_raw, ['lib', 'designation', 'nom'])
+with tab_global:
+    col_up1, col_up2 = st.columns(2)
+    with col_up1:
+        f_terrain = st.file_uploader("STOCK MAGASIN", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="t_up")
+    with col_up2:
+        f_info = st.file_uploader("STOCK POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="i_up")
 
-        if not all([tc_code, tc_lot, tc_qte, ic_code, ic_lot, ic_qte]):
-            st.error("Colonnes introuvables. Vérifiez les fichiers.")
-            st.stop()
+    if f_terrain and f_info:
+        # Utilisation du backend
+        if processor.load_data(f_terrain, f_info):
+            
+            # --- TRAITEMENT via Backend ---
+            merged = processor.process_comparison()
 
-        # --- 1. NETTOYAGE & PRÉPARATION ---
-        df_t = df_t_raw.copy()
-        df_i = df_i_raw.copy()
+            # --- INTERFACE ---
+            nb_ecarts = len(merged[merged['Ecart'] != 0])
+            st.markdown(f'<div class="metric-box">⚠️ Nombre d\'articles avec écarts : {nb_ecarts}</div>', unsafe_allow_html=True)
+            st.write("")
 
-        # Standardisation des codes
-        df_t[tc_code] = df_t[tc_code].apply(formater_sans_decimale)
-        df_i[ic_code] = df_i[ic_code].apply(formater_sans_decimale)
+            st.info("Corrigez la colonne **'Qte Info (Logiciel)'** ci-dessous.")
+            
+            df_display = merged[merged['Ecart'] != 0].copy()
 
-        # Nettoyage des lots
-        df_t['Lot_Clean'] = df_t[tc_lot].apply(nettoyer_lot)
-        df_i['Lot_Clean'] = df_i[ic_lot].apply(nettoyer_lot)
+            edited_df = st.data_editor(
+                df_display,
+                column_order=['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Qte_Info', 'Ecart'],
+                disabled=['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Ecart'],
+                column_config={
+                    "Qte_Info": st.column_config.NumberColumn("Qte Info (Logiciel)", step=1, required=True),
+                    "Qte_Terrain": st.column_config.NumberColumn("Qte Terrain", format="%d"),
+                    "Ecart": st.column_config.NumberColumn("Ecart", format="%d"),
+                },
+                use_container_width=True,
+                num_rows="fixed",
+                key="editor"
+            )
 
-        # --- 2. DICTIONNAIRE MAÎTRE DES LIBELLÉS ---
-        lib_master = {}
-        if tc_lib:
-            temp_t = df_t[[tc_code, tc_lib]].dropna().drop_duplicates(subset=[tc_code])
-            lib_master.update(dict(zip(temp_t[tc_code], temp_t[tc_lib])))
-        if ic_lib:
-            temp_i = df_i[[ic_code, ic_lib]].dropna().drop_duplicates(subset=[ic_code])
-            lib_master.update(dict(zip(temp_i[ic_code], temp_i[ic_lib])))
+            # ALERTES
+            edited_df['Ecart_Final'] = edited_df['Qte_Info'] - edited_df['Qte_Terrain']
+            changes = edited_df[edited_df['Qte_Info'] != edited_df['_Original_Info']]
+            
+            if not changes.empty:
+                st.write("### Actions requises")
+                for idx, row in changes.iterrows():
+                    st.markdown(f"""
+                    <div class="alert-box">
+                        <b>{row['Code']} ({row['Libellé']})</b> : Mettre à jour stock informatique à <b>{int(row['Qte_Info'])}</b>.
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.divider()
 
-        # --- 3. AGRÉGATION ---
-        t_agg = df_t.groupby([tc_code, 'Lot_Clean'])[tc_qte].sum().reset_index()
-        t_agg.columns = ['Code', 'Lot', 'Qte_Terrain']
+            # --- EXPORTS ---
+            c1, c2 = st.columns(2)
 
-        i_agg = df_i.groupby([ic_code, 'Lot_Clean'])[ic_qte].sum().reset_index()
-        i_agg.columns = ['Code', 'Lot', 'Qte_Info']
-
-        # --- 4. FUSION ---
-        merged = pd.merge(i_agg, t_agg, on=['Code', 'Lot'], how='outer')
-        merged['Qte_Info'] = merged['Qte_Info'].fillna(0)
-        merged['Qte_Terrain'] = merged['Qte_Terrain'].fillna(0)
-
-        # --- 5. APPLICATION LIBELLÉS ---
-        merged['Libellé'] = merged['Code'].map(lib_master).fillna("LIBELLÉ INCONNU")
-
-        merged['_Original_Info'] = merged['Qte_Info']
-        merged['Ecart'] = merged['Qte_Info'] - merged['Qte_Terrain']
-
-        # --- INTERFACE ---
-        nb_ecarts = len(merged[merged['Ecart'] != 0])
-        st.markdown(f'<div class="metric-box">⚠️ Nombre d\'articles avec écarts : {nb_ecarts}</div>', unsafe_allow_html=True)
-        st.write("")
-
-        st.info("Corrigez la colonne **'Qte Info (Logiciel)'** ci-dessous.")
-        
-        df_display = merged[merged['Ecart'] != 0].copy()
-
-        edited_df = st.data_editor(
-            df_display,
-            column_order=['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Qte_Info', 'Ecart'],
-            disabled=['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Ecart'],
-            column_config={
-                "Qte_Info": st.column_config.NumberColumn("Qte Info (Logiciel)", step=1, required=True),
-                "Qte_Terrain": st.column_config.NumberColumn("Qte Terrain", format="%d"),
-                "Ecart": st.column_config.NumberColumn("Ecart", format="%d"),
-            },
-            use_container_width=True,
-            num_rows="fixed",
-            key="editor"
-        )
-
-        # ALERTES
-        edited_df['Ecart_Final'] = edited_df['Qte_Info'] - edited_df['Qte_Terrain']
-        changes = edited_df[edited_df['Qte_Info'] != edited_df['_Original_Info']]
-        
-        if not changes.empty:
-            st.write("### Actions requises")
-            for idx, row in changes.iterrows():
-                st.markdown(f"""
-                <div class="alert-box">
-                    <b>{row['Code']} ({row['Libellé']})</b> : Mettre à jour stock informatique à <b>{int(row['Qte_Info'])}</b>.
-                </div>
-                """, unsafe_allow_html=True)
-        
-        st.divider()
-
-        # --- EXPORTS ---
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.subheader("1. Rapport d'Écarts")
-            buffer_rapport = io.BytesIO()
-            with pd.ExcelWriter(buffer_rapport, engine='xlsxwriter') as writer:
-                export_rpt = edited_df[['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Qte_Info', 'Ecart_Final']]
-                formatter_excel(export_rpt, writer, "Rapport Ecarts")
-                date_str = datetime.now().strftime("%d-%m-%Y_%HH"
-                "%M")
+            with c1:
+                st.subheader("1. Rapport d'Écarts")
+                # Appel Backend pour génération Excel
+                buffer_rapport = processor.generate_diff_report(edited_df)
+                date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
                 nom_fichier_rapport = f"Rapport_Ecarts_{date_str}.xlsx"
-            st.download_button("Télécharger Rapport", buffer_rapport, nom_fichier_rapport, mime="application/vnd.ms-excel", use_container_width=True)
+                st.download_button("Télécharger Rapport", buffer_rapport, nom_fichier_rapport, mime="application/vnd.ms-excel", use_container_width=True)
 
-    with c2:
-            st.subheader("2. Fichier Final")
-            st.caption("Génère l'inventaire complet au format du fichier informatique.")
-            
-            confirm_update = st.checkbox("Je confirme vouloir générer le fichier de mise à jour complet", key="confirm_global")
-            
-            if confirm_update:
-                # 1. Mise à jour des quantités (Global)
-                df_global = merged.copy()
-                df_global.set_index(['Code', 'Lot'], inplace=True)
-                df_corrections = edited_df.set_index(['Code', 'Lot'])
-                df_global.update(df_corrections[['Qte_Info']])
-                df_global.reset_index(inplace=True)
+            with c2:
+                st.subheader("2. Fichier Final")
+                st.caption("Génère l'inventaire complet au format du fichier informatique.")
                 
-                # 2. On garde les lignes valides (!= 0)
-                df_valid_full = df_global[df_global['Qte_Info'] != 0].copy()
+                confirm_update = st.checkbox("Je confirme vouloir générer le fichier de mise à jour complet", key="confirm_global")
                 
-                # 3. IDENTIFICATION DES COLONNES METADATA
-                col_ean_i = trouver_colonne(df_i_raw, ['ean', 'code_barre', 'gencod'])
-                col_ser_i = trouver_colonne(df_i_raw, ['serie', 'serial', 's/n'])
-                col_emp_i = trouver_colonne(df_i_raw, ['emplacement', 'rack', 'allee', 'localisation'])
-                col_site_i = trouver_colonne(df_i_raw, ['site', 'magasin', 'depot'])
-                col_res_i = trouver_colonne(df_i_raw, ['reserve', 'réserv', 'alloue'])
-                # --- AJOUT DES NOUVELLES COLONNES ---
-                col_dispo_i = trouver_colonne(df_i_raw, ['dispo', 'utilisable']) 
-                col_um_i = trouver_colonne(df_i_raw, ['um', 'unite', 'uom'])
-
-                col_ean_t = trouver_colonne(df_t_raw, ['ean', 'code_barre', 'gencod'])
-                col_ser_t = trouver_colonne(df_t_raw, ['serie', 'serial', 's/n'])
-                col_emp_t = trouver_colonne(df_t_raw, ['emplacement', 'rack', 'allee', 'localisation'])
-                col_site_t = trouver_colonne(df_t_raw, ['site', 'magasin', 'depot'])
-                col_um_t = trouver_colonne(df_t_raw, ['um', 'unite', 'uom']) # On cherche l'UM terrain aussi
-
-                # 4. PRÉPARATION DE LA BASE INFORMATIQUE
-                df_base = df_i_raw.copy()
-                df_base['Code_Join'] = df_base[ic_code].apply(formater_sans_decimale)
-                df_base['Lot_Join'] = df_base[ic_lot].apply(nettoyer_lot)
-                
-                if col_ean_i: df_base[col_ean_i] = df_base[col_ean_i].apply(formater_sans_decimale)
-                if col_ser_i: df_base[col_ser_i] = df_base[col_ser_i].apply(formater_sans_decimale)
-
-                # Anti-doublon essentiel
-                df_base = df_base.drop_duplicates(subset=['Code_Join', 'Lot_Join'])
-
-                # 5. PRÉPARATION DE LA BASE TERRAIN (Secours)
-                df_backup = df_t_raw.copy()
-                df_backup['Code_Join'] = df_backup[tc_code].apply(formater_sans_decimale)
-                df_backup['Lot_Join'] = df_backup[tc_lot].apply(nettoyer_lot)
-                
-                if col_ean_t: df_backup[col_ean_t] = df_backup[col_ean_t].apply(formater_sans_decimale)
-                if col_ser_t: df_backup[col_ser_t] = df_backup[col_ser_t].apply(formater_sans_decimale)
-
-                df_backup = df_backup.drop_duplicates(subset=['Code_Join', 'Lot_Join'])
-
-                # 6. FUSION ROBUSTE
-                df_step1 = pd.merge(
-                    df_valid_full, 
-                    df_base, 
-                    left_on=['Code', 'Lot'], 
-                    right_on=['Code_Join', 'Lot_Join'], 
-                    how='left', 
-                    suffixes=('', '_info')
-                )
-                
-                df_final_rich = pd.merge(
-                    df_step1, 
-                    df_backup, 
-                    left_on=['Code', 'Lot'], 
-                    right_on=['Code_Join', 'Lot_Join'], 
-                    how='left', 
-                    suffixes=('', '_terr')
-                )
-
-                # 7. RECONSTRUCTION DU FICHIER FINAL
-                df_export = pd.DataFrame()
-                
-                default_site = ""
-                if col_site_i and not df_base[col_site_i].dropna().empty:
-                    default_site = df_base[col_site_i].mode()[0]
-
-                for col in df_i_raw.columns:
-                    if col in ['Code_Join', 'Lot_Join', 'Lot_Clean']: continue
+                if confirm_update:
+                    # Appel Backend pour la logique complexe de reconstruction
+                    buffer_maj = processor.generate_final_update(edited_df, merged)
                     
-                    # A. Clés principales
-                    if col == ic_code:
-                        df_export[col] = df_final_rich['Code']
-                    elif col == ic_lot:
-                        df_export[col] = df_final_rich['Lot']
-                    elif col == ic_qte:
-                        df_export[col] = df_final_rich['Qte_Info']
-                    elif col == ic_lib:
-                        df_export[col] = df_final_rich['Libellé']
+                    date_str = datetime.now().strftime("%d-%m-%Y %Hh%M")
+                    nom_fichier_final = f"STOCK MAGASIN {date_str}.xlsx"
+                    
+                    st.download_button(
+                        "Mise à jour du stock magasin", 
+                        buffer_maj, 
+                        nom_fichier_final, 
+                        mime="application/vnd.ms-excel", 
+                        type="primary", 
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("Veuillez cocher la case pour générer le fichier.")
+        else:
+             st.error("Colonnes introuvables. Vérifiez les fichiers.")
+    else:
+        st.info("En attente des fichiers...")
 
-                    # B. QUANTITÉ DISPONIBLE (NEW) -> Egale au stock
-                    elif col_dispo_i and col == col_dispo_i:
-                         # On applique simplement la quantité stock validée
-                         df_export[col] = df_final_rich['Qte_Info']
+# ==============================================================================
+# ONGLET 2 : NOUVELLE FONCTIONNALITÉ (INVENTAIRE TOURNANT)
+# ==============================================================================
+with tab_tournant:
+    st.caption("Scan article par article pour vérification rapide.")
+    
+    # 1. Chargement du fichier de référence (POUS)
+    file_ref = st.file_uploader("Charger le fichier STOCK POUS (Référence)", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="ref_up")
+    
+    if file_ref:
+        # Chargement du fichier en mémoire
+        if 'df_ref' not in st.session_state or st.session_state.get('file_ref_name') != file_ref.name:
+            from utils import charger_fichier_pandas, trouver_colonne
+            df = charger_fichier_pandas(file_ref)
+            st.session_state.df_ref = df
+            st.session_state.file_ref_name = file_ref.name
+            # Identification basique des colonnes pour cet onglet
+            st.session_state.col_code = trouver_colonne(df, ['code', 'article', 'ref'])
+            st.session_state.col_qte = trouver_colonne(df, ['qte', 'quant', 'stock'])
+            st.session_state.col_lib = trouver_colonne(df, ['lib', 'designation'])
+            st.session_state.col_lot = trouver_colonne(df, ['lot', 'serie'])
+            st.success(f"Fichier chargé : {len(df)} lignes.")
 
-                    # C. UNITÉ DE MESURE (NEW) -> Info sinon Terrain
-                    elif col_um_i and col == col_um_i:
-                        val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
-                        val_t = df_final_rich[col_um_t + '_terr'] if col_um_t and (col_um_t + '_terr') in df_final_rich.columns else pd.NA
-                        # Si vide, on met 'pcs' par défaut ou vide
-                        df_export[col] = val_i.fillna(val_t).fillna("")
-
-                    # D. EAN & SERIE
-                    elif col_ean_i and col == col_ean_i:
-                        val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
-                        val_t = df_final_rich[col_ean_t + '_terr'] if col_ean_t and (col_ean_t + '_terr') in df_final_rich.columns else pd.NA
-                        df_export[col] = val_i.fillna(val_t).fillna("")
-                        
-                    elif col_ser_i and col == col_ser_i:
-                        val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
-                        val_t = df_final_rich[col_ser_t + '_terr'] if col_ser_t and (col_ser_t + '_terr') in df_final_rich.columns else pd.NA
-                        df_export[col] = val_i.fillna(val_t).fillna("")
-
-                    # E. EMPLACEMENT
-                    elif col_emp_i and col == col_emp_i:
-                        val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
-                        val_t = df_final_rich[col_emp_t + '_terr'] if col_emp_t and (col_emp_t + '_terr') in df_final_rich.columns else pd.NA
-                        df_export[col] = val_i.fillna(val_t).fillna("")
-
-                    # F. SITE
-                    elif col_site_i and col == col_site_i:
-                        val_i = df_final_rich[col] if col in df_final_rich.columns else pd.NA
-                        val_t = df_final_rich[col_site_t + '_terr'] if col_site_t and (col_site_t + '_terr') in df_final_rich.columns else pd.NA
-                        df_export[col] = val_i.fillna(val_t).fillna(default_site)
-
-                    # G. QUANTITE RESERVEE
-                    elif col_res_i and col == col_res_i:
-                        if col in df_final_rich.columns:
-                            df_export[col] = df_final_rich[col].fillna(0)
-                        elif f"{col}_info" in df_final_rich.columns:
-                             df_export[col] = df_final_rich[f"{col}_info"].fillna(0)
-                        else:
-                            df_export[col] = 0
-
-                    # H. LE RESTE
+        df = st.session_state.df_ref
+        
+        # 2. Zone de Scan
+        st.divider()
+        col_scan, col_result = st.columns([1, 2])
+        
+        with col_scan:
+            def run_search():
+                query = st.session_state.scan_input
+                if query:
+                    # --- Logique de recherche ---
+                    mask = pd.Series(False, index=df.index)
+                    for col in df.columns:
+                        try:
+                            mask = mask | (df[col].astype(str).str.strip().str.upper() == str(query).strip().upper())
+                        except: pass
+                    res = df[mask]
+                    if not res.empty:
+                        st.session_state.current_search = res.iloc[0].to_dict()
+                        st.session_state.search_status = "found"
                     else:
-                        if col in df_final_rich.columns:
-                            df_export[col] = df_final_rich[col]
-                        elif f"{col}_info" in df_final_rich.columns:
-                             df_export[col] = df_final_rich[f"{col}_info"]
-                        else:
-                            df_export[col] = ""
+                        st.session_state.current_search = None
+                        st.session_state.search_status = "not_found"
+                    
+                    st.session_state.scan_input = ""
 
-                buffer_maj = io.BytesIO()
-                with pd.ExcelWriter(buffer_maj, engine='xlsxwriter') as writer:
-                    formatter_excel_maj(df_export, writer, "Inventaire_Complet")
+            label_scan = "SCANNER ICI"
+            
+            # 1. L'INPUT
+            st.text_input(label_scan, key="scan_input", on_change=run_search)
+
+            # 2. LE SCRIPT
+            timestamp = int(time.time() * 1000)
+            
+            components.html(f"""
+                <script>
+                    var input = window.parent.document.querySelector('input[aria-label="{label_scan}"]');
+                    if (input) {{
+                        input.focus();
+                        input.select();
+                    }}
+                    // Force re-load timestamp: {timestamp}
+                </script>
+            """, height=0, width=0)
+
+            st.caption("Le curseur est verrouillé sur cette case.")
+
+        # 3. Affichage Résultat
+        with col_result:
+            if st.session_state.get('current_search'):
+                item = st.session_state.current_search
+                c_code = st.session_state.col_code
+                c_lib = st.session_state.col_lib
+                c_qte = st.session_state.col_qte
+                c_lot = st.session_state.col_lot
                 
-                date_str = datetime.now().strftime("%d-%m-%Y %HH%M")
-                nom_fichier_final = f"STOCK MAGASIN {date_str}.xlsx"
+                # Carte d'info
+                st.info(f"Article trouvé : {item.get(c_code)}")
+                st.markdown(f"## {item.get(c_lib)}")
+                if c_lot:
+                    st.write(f"**Lot/Série :** {item.get(c_lot)}")
                 
-                st.download_button(
-                    "Mise à jour du stock magasin", 
-                    buffer_maj, 
-                    nom_fichier_final, 
-                    mime="application/vnd.ms-excel", 
-                    type="primary", 
-                    use_container_width=True
-                )
-            else:
-                st.warning("Veuillez cocher la case pour générer le fichier.")
-else:
-     st.info("En attente des fichiers...")
+                # Gestion Quantité
+                qte_info = item.get(c_qte, 0)
+                st.metric("Quantité Informatique", qte_info)
+                
+                # Actions
+                st.write("---")
+                col_btn1, col_btn2 = st.columns(2)
+                
+                # Bouton OK
+                if col_btn1.button("STOCK OK", use_container_width=True, type="primary"):
+                    st.session_state.history.insert(0, {
+                        "Heure": datetime.now().strftime("%H:%M:%S"),
+                        "Code": item.get(c_code),
+                        "Libellé": item.get(c_lib),
+                        "Ancien Stock": qte_info,
+                        "Nouveau Stock": qte_info,
+                        "Statut": "OK"
+                    })
+                    st.toast("Stock confirmé !")
+                    st.session_state.current_search = None # Reset
+                    st.rerun()
+
+                # Bouton Correction
+                with col_btn2:
+                    # step=1 empêche les décimales à la saisie
+                    new_qte = st.number_input("Nouvelle Quantité Réelle", value=float(qte_info), step=1.0)
+                    
+                    if st.button("CORRIGER STOCK"):
+                        # On force la conversion en int() ici pour nettoyer les zéros
+                        valeur_propre = int(new_qte) 
+                        ancien_propre = int(qte_info) if pd.notna(qte_info) else 0
+
+                        st.session_state.history.insert(0, {
+                            "Heure": datetime.now().strftime("%H:%M:%S"),
+                            "Code": item.get(c_code),
+                            "Libellé": item.get(c_lib),
+                            "Ancien Stock": ancien_propre,  # Nettoyé
+                            "Nouveau Stock": valeur_propre, # Nettoyé (300 au lieu de 300.000)
+                            "Statut": "CORRECTION"
+                        })
+                        st.toast("Correction enregistrée !")
+                        st.session_state.current_search = None # Reset
+                        st.rerun()
+
+    # 4. Historique de la session
+    st.divider()
+    st.subheader("Historique de la session")
+    if st.session_state.history:
+        df_hist = pd.DataFrame(st.session_state.history)
+        
+        # Coloration conditionnelle simple
+        def color_status(val):
+            color = "#7ae994" if val == 'OK' else "#fd0015" # Vert vs Rouge pastel
+            return f'background-color: {color}'
+
+        st.dataframe(df_hist.style.applymap(color_status, subset=['Statut']), use_container_width=True)
+        
+        # Export Session
+        buffer_hist = io.BytesIO()
+        with pd.ExcelWriter(buffer_hist, engine='xlsxwriter') as writer:
+            df_hist.to_excel(writer, index=False)
+            date_str = datetime.now().strftime("%d-%m-%Y %Hh%M")
+            nom_fichier_final = f"Inventaire_Tournant {date_str}.xlsx"
+        st.download_button("Télécharger l'historique de session", buffer_hist, nom_fichier_final)
+    else:
+        st.caption("Scannez des articles pour voir l'historique.")
