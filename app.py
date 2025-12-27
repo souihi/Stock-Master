@@ -247,7 +247,7 @@ with tab_tournant:
                 # Bouton Correction
                 with col_btn2:
                     # step=1 empêche les décimales à la saisie
-                    new_qte = st.number_input("Nouvelle Quantité Réelle", value=float(qte_info), step=1.0)
+                    new_qte = st.text_input("Nouvelle Quantité Réelle", value=float(qte_info))
                     
                     if st.button("CORRIGER STOCK"):
                         # On force la conversion en int() ici pour nettoyer les zéros
