@@ -9,9 +9,15 @@ from backend import StockProcessor
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Comparateur Stock", layout="wide")
 
-# --- CSS---
+# --- CSS OPTIMISÉ MOBILE ---
 st.markdown("""
     <style>
+    /* Réduire le padding en haut de l'app sur mobile */
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+    }
+    /* Style des boites métriques */
     .metric-box {
         background-color: #08101e;
         border-left: 5px solid #ff4b4b;
@@ -19,12 +25,42 @@ st.markdown("""
         border-radius: 5px;
         font-weight: bold;
     }
+    /* Style Alertes */
     .alert-box {
         background-color: #fff3cd;
         border-left: 5px solid #ffc107;
         padding: 10px;
         margin-bottom: 5px;
         color: #856404;
+    }
+    /* Grossir le chiffre du stock pour lecture rapide */
+    div[data-testid="stMetricValue"] {
+        font-size: 3rem !important;
+    }
+            /* --- COULEURS DES BOUTONS --- */
+    
+    /* Bouton "Secondaire" (Par défaut) -> VERT (Pour STOCK OK) */
+    button[kind="secondary"] {
+        background-color: #28a745 !important;
+        border-color: #28a745 !important;
+        color: white !important;
+    }
+    button[kind="secondary"]:hover, button[kind="secondary"]:focus {
+        background-color: #218838 !important;
+        border-color: #218838 !important;
+        color: white !important;
+    }
+
+    /* Bouton "Primary" -> ROUGE (Pour CORRIGER) */
+    button[kind="primary"] {
+        background-color: #dc3545 !important;
+        border-color: #dc3545 !important;
+        color: white !important;
+    }
+    button[kind="primary"]:hover, button[kind="primary"]:focus {
+        background-color: #c82333 !important;
+        border-color: #c82333 !important;
+        color: white !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -138,63 +174,53 @@ with tab_global:
         st.info("En attente des fichiers...")
 
 # ==============================================================================
-# ONGLET 2 : NOUVELLE FONCTIONNALITÉ (INVENTAIRE TOURNANT)
+# ONGLET 2 : INVENTAIRE TOURNANT (OPTIMISÉ MOBILE/TABLETTE)
 # ==============================================================================
 with tab_tournant:
-    st.caption("Scan article par article pour vérification rapide.")
-    
-    # 1. Chargement du fichier de référence (POUS)
-    file_ref = st.file_uploader("Charger le fichier STOCK POUS (Référence)", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="ref_up")
+    # --- 1. CHARGEMENT FICHIER (Dans un expander pour gagner de la place après chargement) ---
+    with st.expander("Charger fichier POUS", expanded=True if 'df_ref' not in st.session_state else False):
+        file_ref = st.file_uploader("Fichier POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="ref_up")
     
     if file_ref:
-        # Chargement du fichier en mémoire
         if 'df_ref' not in st.session_state or st.session_state.get('file_ref_name') != file_ref.name:
             from utils import charger_fichier_pandas, trouver_colonne
             df = charger_fichier_pandas(file_ref)
             st.session_state.df_ref = df
             st.session_state.file_ref_name = file_ref.name
-            # Identification basique des colonnes pour cet onglet
             st.session_state.col_code = trouver_colonne(df, ['code', 'article', 'ref'])
             st.session_state.col_qte = trouver_colonne(df, ['qte', 'quant', 'stock'])
             st.session_state.col_lib = trouver_colonne(df, ['lib', 'designation'])
             st.session_state.col_lot = trouver_colonne(df, ['lot', 'serie'])
-            st.success(f"Fichier chargé : {len(df)} lignes.")
+            st.toast(f"Fichier chargé : {len(df)} lignes")
 
         df = st.session_state.df_ref
         
-        # 2. Zone de Scan
-        st.divider()
-        col_scan, col_result = st.columns([1, 2])
+        # --- 2. BARRE DE SCAN---
+        def run_search():
+            query = st.session_state.scan_input
+            if query:
+                # Recherche insensible à la casse et aux espaces
+                mask = pd.Series(False, index=df.index)
+                for col in df.columns:
+                    try:
+                        mask = mask | (df[col].astype(str).str.strip().str.upper() == str(query).strip().upper())
+                    except: pass
+                res = df[mask]
+                if not res.empty:
+                    st.session_state.current_search = res.iloc[0].to_dict()
+                    st.session_state.search_status = "found"
+                else:
+                    st.session_state.current_search = None
+                    st.session_state.search_status = "not_found"
+                st.session_state.scan_input = ""
+
+        label_scan = "SCANNER ICI"
+        st.text_input(label_scan, key="scan_input", on_change=run_search, placeholder="Cliquez ici pour scanner...")
         
-        with col_scan:
-            def run_search():
-                query = st.session_state.scan_input
-                if query:
-                    # --- Logique de recherche ---
-                    mask = pd.Series(False, index=df.index)
-                    for col in df.columns:
-                        try:
-                            mask = mask | (df[col].astype(str).str.strip().str.upper() == str(query).strip().upper())
-                        except: pass
-                    res = df[mask]
-                    if not res.empty:
-                        st.session_state.current_search = res.iloc[0].to_dict()
-                        st.session_state.search_status = "found"
-                    else:
-                        st.session_state.current_search = None
-                        st.session_state.search_status = "not_found"
-                    
-                    st.session_state.scan_input = ""
-
-            label_scan = "SCANNER ICI"
+        # Script Focus (Version Timestamp)
+        timestamp = int(time.time() * 1000)
             
-            # 1. L'INPUT
-            st.text_input(label_scan, key="scan_input", on_change=run_search)
-
-            # 2. LE SCRIPT
-            timestamp = int(time.time() * 1000)
-            
-            components.html(f"""
+        components.html(f"""
                 <script>
                     var input = window.parent.document.querySelector('input[aria-label="{label_scan}"]');
                     if (input) {{
@@ -205,86 +231,90 @@ with tab_tournant:
                 </script>
             """, height=0, width=0)
 
-            st.caption("Le curseur est verrouillé sur cette case.")
+        
+        st.caption("Le curseur est verrouillé sur cette case.")
 
-        # 3. Affichage Résultat
-        with col_result:
-            if st.session_state.get('current_search'):
-                item = st.session_state.current_search
-                c_code = st.session_state.col_code
-                c_lib = st.session_state.col_lib
-                c_qte = st.session_state.col_qte
-                c_lot = st.session_state.col_lot
-                
-                # Carte d'info
-                st.info(f"Article trouvé : {item.get(c_code)}")
-                st.markdown(f"## {item.get(c_lib)}")
-                if c_lot:
-                    st.write(f"**Lot/Série :** {item.get(c_lot)}")
-                
-                # Gestion Quantité
-                qte_info = item.get(c_qte, 0)
-                st.metric("Quantité Informatique", qte_info)
-                
-                # Actions
-                st.write("---")
-                col_btn1, col_btn2 = st.columns(2)
-                
-                # Bouton OK
-                if col_btn1.button("STOCK OK", use_container_width=True, type="primary"):
-                    st.session_state.history.insert(0, {
-                        "Heure": datetime.now().strftime("%H:%M:%S"),
-                        "Code": item.get(c_code),
-                        "Libellé": item.get(c_lib),
-                        "Ancien Stock": qte_info,
-                        "Nouveau Stock": qte_info,
-                        "Statut": "OK"
-                    })
-                    st.toast("Stock confirmé !")
-                    st.session_state.current_search = None # Reset
-                    st.rerun()
+        st.divider()
 
-                # Bouton Correction
-                with col_btn2:
-                    # step=1 empêche les décimales à la saisie
-                    new_qte = st.text_input("Nouvelle Quantité Réelle", value=float(qte_info))
-                    
-                    if st.button("CORRIGER STOCK"):
-                        # On force la conversion en int() ici pour nettoyer les zéros
-                        valeur_propre = int(new_qte) 
-                        ancien_propre = int(qte_info) if pd.notna(qte_info) else 0
+        # --- 3. ZONE DE RÉSULTAT (Style "Carte" pour mobile) ---
+        if st.session_state.get('current_search'):
+            item = st.session_state.current_search
+            c_code = st.session_state.col_code
+            c_lib = st.session_state.col_lib
+            c_qte = st.session_state.col_qte
+            qte_info = item.get(c_qte, 0)
 
+            # Conteneur visuel pour bien délimiter le résultat
+            with st.container(border=True):
+                # En-tête de la carte
+                st.caption(f"Code: {item.get(c_code)}")
+                st.markdown(f"### {item.get(c_lib)}")
+                
+                # Gros affichage du stock
+                col_metric, col_actions = st.columns([1, 1])
+                
+                with col_metric:
+                    st.metric("STOCK POUS", int(qte_info) if pd.notna(qte_info) else 0)
+                # Boutons d'action
+                with col_actions:
+                    st.write("") # Espacement
+                    # Bouton OK vert et large
+                    if st.button("STOCK OK", use_container_width=True):
                         st.session_state.history.insert(0, {
-                            "Heure": datetime.now().strftime("%H:%M:%S"),
+                            "Heure": datetime.now().strftime("%H:%M"),
                             "Code": item.get(c_code),
                             "Libellé": item.get(c_lib),
-                            "Ancien Stock": ancien_propre,  # Nettoyé
-                            "Nouveau Stock": valeur_propre, # Nettoyé (300 au lieu de 300.000)
-                            "Statut": "CORRECTION"
+                            "Ancien": int(qte_info),
+                            "Nouveau": int(qte_info),
+                            "Statut": "OK"
                         })
-                        st.toast("Correction enregistrée !")
-                        st.session_state.current_search = None # Reset
+                        st.toast("Confirmé !")
+                        st.session_state.current_search = None
                         st.rerun()
 
-    # 4. Historique de la session
-    st.divider()
-    st.subheader("Historique de la session")
-    if st.session_state.history:
-        df_hist = pd.DataFrame(st.session_state.history)
-        
-        # Coloration conditionnelle simple
-        def color_status(val):
-            color = "#7ae994" if val == 'OK' else "#fd0015" # Vert vs Rouge pastel
-            return f'background-color: {color}'
+            # Zone de correction (Séparée pour éviter les clics accidentels)
+            with st.expander("⚠️ Faire une correction de stock", expanded=True):
+                c_saisie, c_valide = st.columns([2, 1])
+                
+                with c_saisie:
+                    # value=None permet d'avoir la case vide pour taper direct
+                    # step=1 assure qu'on tape des entiers
+                    new_qte = st.number_input(
+                        "Quantité Réelle", 
+                        value=None, 
+                        step=1, 
+                        placeholder="Tapez le stock...", 
+                        label_visibility="collapsed"
+                    )
+                    
+                with c_valide:
+                    if st.button("CORRIGER",type="primary", use_container_width=True):
+                        # On vérifie que l'utilisateur a bien tapé quelque chose
+                        if new_qte is not None:
+                            valeur_propre = int(new_qte)
+                            ancien_propre = int(qte_info) if pd.notna(qte_info) else 0
+                            
+                            st.session_state.history.insert(0, {
+                                "Heure": datetime.now().strftime("%H:%M"),
+                                "Code": item.get(c_code),
+                                "Libellé": item.get(c_lib),
+                                "Ancien": ancien_propre,
+                                "Nouveau": valeur_propre,
+                                "Statut": "CORRECTION"
+                            })
+                            st.toast("Correction sauvegardée", icon="💾")
+                            st.session_state.current_search = None
+                            st.rerun()
+                        else:
+                            st.warning("Saisissez une quantité.")
 
-        st.dataframe(df_hist.style.applymap(color_status, subset=['Statut']), use_container_width=True)
-        
-        # Export Session
-        buffer_hist = io.BytesIO()
-        with pd.ExcelWriter(buffer_hist, engine='xlsxwriter') as writer:
-            df_hist.to_excel(writer, index=False)
-            date_str = datetime.now().strftime("%d-%m-%Y %Hh%M")
-            nom_fichier_final = f"Inventaire_Tournant {date_str}.xlsx"
-        st.download_button("Télécharger l'historique de session", buffer_hist, nom_fichier_final)
-    else:
-        st.caption("Scannez des articles pour voir l'historique.")
+        elif st.session_state.get('search_status') == "not_found":
+            st.error("❌ Article inconnu / Code barre non trouvé")
+
+        # --- 4. HISTORIQUE) ---
+        st.write("")
+        with st.expander(f"📝 Historique de session ({len(st.session_state.history)})", expanded=False):
+            if st.session_state.history:
+                st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
+            else:
+                st.caption("Aucun scan effectué.")
