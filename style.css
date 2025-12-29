@@ -1,0 +1,61 @@
+.block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    
+/* 1. Code Article */
+.big-code {
+        font-size: 2.5rem !important;
+        font-weight: 800;
+        color: var(--text-color) !important; 
+        margin-bottom: 5px;
+    }
+
+    /* 2. Libellé Article */
+    .article-lib {
+        font-size: 1.1rem !important;
+        font-weight: 600;
+        color: var(--text-color) !important;
+        opacity: 0.8; 
+        margin-bottom: 15px;
+        line-height: 1.4;
+    }
+
+    /* Style des métriques */
+    div[data-testid="stMetricValue"] { font-size: 3rem !important; }
+
+    /* Boites d'info (Metric Box) */
+    .metric-box { 
+        background-color: #08101e; 
+        border-left: 5px solid #ff4b4b; 
+        padding: 15px; 
+        border-radius: 5px; 
+        font-weight: bold;
+        color: white !important;
+    }
+    
+    .alert-box { 
+        background-color: #fff3cd; 
+        border-left: 5px solid #ffc107; 
+        padding: 10px; 
+        margin-bottom: 5px; 
+        color: #856404; /* Couleur fixe car le fond jaune est fixe */
+    }
+
+    /* --- COULEURS DES BOUTONS --- */
+    button[kind="secondary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
+    button[kind="secondary"]:hover { background-color: #218838 !important; border-color: #218838 !important; }
+    button[kind="primary"] { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
+    button[kind="primary"]:hover { background-color: #c82333 !important; border-color: #c82333 !important; }
+
+    /* --- MOBILE ONLY --- */
+    @media only screen and (max-width: 640px) {
+        div[data-testid="stMetric"] {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            width: 100%;
+        }
+        div[data-testid="stMetricLabel"] {
+            justify-content: center;
+        }
+    }
