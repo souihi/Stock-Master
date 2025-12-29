@@ -12,59 +12,43 @@ st.set_page_config(page_title="Comparateur Stock", layout="wide")
 # --- CSS OPTIMISÉ MOBILE ---
 st.markdown("""
     <style>
-    /* Réduire le padding en haut de l'app sur mobile */
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 2rem;
-    }
-    /* Style des boites métriques */
-    .metric-box {
-        background-color: #08101e;
-        border-left: 5px solid #ff4b4b;
-        padding: 15px;
-        border-radius: 5px;
-        font-weight: bold;
-    }
-    /* Style Alertes */
-    .alert-box {
-        background-color: #fff3cd;
-        border-left: 5px solid #ffc107;
-        padding: 10px;
-        margin-bottom: 5px;
-        color: #856404;
-    }
-    /* Grossir le chiffre du stock pour lecture rapide */
-    div[data-testid="stMetricValue"] {
-        font-size: 3rem !important;
-    }
-            /* --- COULEURS DES BOUTONS --- */
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     
-    /* Bouton "Secondaire" (Par défaut) -> VERT (Pour STOCK OK) */
-    button[kind="secondary"] {
-        background-color: #28a745 !important;
-        border-color: #28a745 !important;
-        color: white !important;
-    }
-    button[kind="secondary"]:hover, button[kind="secondary"]:focus {
-        background-color: #218838 !important;
-        border-color: #218838 !important;
-        color: white !important;
+    /* Style pour le Code Article (Gros et visible) */
+    .big-code {
+        font-size: 1.5rem !important;
+        font-weight: 800; /* Très gras */
+        color: #31333F;
+        margin-bottom: 0px;
     }
 
-    /* Bouton "Primary" -> ROUGE (Pour CORRIGER) */
-    button[kind="primary"] {
-        background-color: #dc3545 !important;
-        border-color: #dc3545 !important;
-        color: white !important;
-    }
-    button[kind="primary"]:hover, button[kind="primary"]:focus {
-        background-color: #c82333 !important;
-        border-color: #c82333 !important;
-        color: white !important;
+    /* Style global des métriques (Stock) */
+    div[data-testid="stMetricValue"] { font-size: 3rem !important; }
+
+    /* --- COULEURS DES BOUTONS --- */
+    button[kind="secondary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
+    button[kind="secondary"]:hover { background-color: #218838 !important; border-color: #218838 !important; }
+    button[kind="primary"] { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
+    button[kind="primary"]:hover { background-color: #c82333 !important; border-color: #c82333 !important; }
+
+    /* --- REGLES UNIQUEMENT POUR MOBILE (Ecran < 640px) --- */
+    @media only screen and (max-width: 640px) {
+        /* On centre le Widget Metric (Stock Info) */
+        div[data-testid="stMetric"] {
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Centre horizontalement */
+            justify-content: center;
+            text-align: center;
+            width: 100%;
+        }
+        /* On centre le label "STOCK INFO" aussi */
+        div[data-testid="stMetricLabel"] {
+            justify-content: center;
+        }
     }
     </style>
 """, unsafe_allow_html=True)
-
 # --- SESSION STATE ---
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -88,7 +72,6 @@ with tab_global:
         f_terrain = st.file_uploader("STOCK MAGASIN", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="t_up")
     with col_up2:
         f_info = st.file_uploader("STOCK POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="i_up")
-
     if f_terrain and f_info:
         # Utilisation du backend
         if processor.load_data(f_terrain, f_info):
@@ -246,17 +229,20 @@ with tab_tournant:
 
             # Conteneur visuel pour bien délimiter le résultat
             with st.container(border=True):
-                # En-tête de la carte
-                st.caption(f"Code: {item.get(c_code)}")
+                # MODIFICATION ICI : On utilise du HTML pour appliquer le style "Gros Code"
+                st.markdown(f"<div class='big-code'>CODE : {item.get(c_code)}</div>", unsafe_allow_html=True)
+                
+                # Le libellé en dessous
                 st.markdown(f"### {item.get(c_lib)}")
                 
-                # Gros affichage du stock
                 col_metric, col_actions = st.columns([1, 1])
                 
                 with col_metric:
+                    # Le CSS s'occupera de centrer ça uniquement sur mobile
                     st.metric("STOCK POUS", int(qte_info) if pd.notna(qte_info) else 0)
                 # Boutons d'action
-                with col_actions:
+
+            with col_actions:
                     st.write("") # Espacement
                     # Bouton OK vert et large
                     if st.button("STOCK OK", use_container_width=True):
