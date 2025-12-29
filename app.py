@@ -2,53 +2,15 @@ import streamlit as st
 import time
 import streamlit.components.v1 as components
 import pandas as pd
-import io
 from datetime import datetime
 from backend import StockProcessor
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Comparateur Stock", layout="wide")
+# --- CHARGEMENT DU CSS ---
+with open("style.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# --- CSS OPTIMISÉ MOBILE ---
-st.markdown("""
-    <style>
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    
-    /* Style pour le Code Article (Gros et visible) */
-    .big-code {
-        font-size: 1.5rem !important;
-        font-weight: 800; /* Très gras */
-        color: #31333F;
-        margin-bottom: 0px;
-    }
-
-    /* Style global des métriques (Stock) */
-    div[data-testid="stMetricValue"] { font-size: 3rem !important; }
-
-    /* --- COULEURS DES BOUTONS --- */
-    button[kind="secondary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
-    button[kind="secondary"]:hover { background-color: #218838 !important; border-color: #218838 !important; }
-    button[kind="primary"] { background-color: #dc3545 !important; border-color: #dc3545 !important; color: white !important; }
-    button[kind="primary"]:hover { background-color: #c82333 !important; border-color: #c82333 !important; }
-
-    /* --- REGLES UNIQUEMENT POUR MOBILE (Ecran < 640px) --- */
-    @media only screen and (max-width: 640px) {
-        /* On centre le Widget Metric (Stock Info) */
-        div[data-testid="stMetric"] {
-            display: flex;
-            flex-direction: column;
-            align-items: center; /* Centre horizontalement */
-            justify-content: center;
-            text-align: center;
-            width: 100%;
-        }
-        /* On centre le label "STOCK INFO" aussi */
-        div[data-testid="stMetricLabel"] {
-            justify-content: center;
-        }
-    }
-    </style>
-""", unsafe_allow_html=True)
 # --- SESSION STATE ---
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -229,11 +191,10 @@ with tab_tournant:
 
             # Conteneur visuel pour bien délimiter le résultat
             with st.container(border=True):
-                # MODIFICATION ICI : On utilise du HTML pour appliquer le style "Gros Code"
                 st.markdown(f"<div class='big-code'>CODE : {item.get(c_code)}</div>", unsafe_allow_html=True)
                 
                 # Le libellé en dessous
-                st.markdown(f"### {item.get(c_lib)}")
+                st.markdown(f"<div class='article-lib'>{item.get(c_lib)}</div>", unsafe_allow_html=True)
                 
                 col_metric, col_actions = st.columns([1, 1])
                 
