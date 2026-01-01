@@ -144,19 +144,49 @@ with tab_tournant:
         def run_search():
             query = st.session_state.scan_input
             if query:
-                # Recherche insensible à la casse et aux espaces
+                # 1. Recherche initiale (Trouver au moins une ligne qui matche le scan)
                 mask = pd.Series(False, index=df.index)
                 for col in df.columns:
                     try:
                         mask = mask | (df[col].astype(str).str.strip().str.upper() == str(query).strip().upper())
                     except: pass
-                res = df[mask]
-                if not res.empty:
-                    st.session_state.current_search = res.iloc[0].to_dict()
+                
+                res_prelim = df[mask]
+                
+                if not res_prelim.empty:
+                    # --- NOUVELLE LOGIQUE D'AGRÉGATION ---
+                    # A. On identifie le Code Article unique de l'objet trouvé
+                    c_code = st.session_state.col_code
+                    found_article_code = res_prelim.iloc[0][c_code]
+                    
+                    # B. On va chercher TOUTES les lignes du fichier qui ont ce code article
+                    # (Cela inclut STOCK, RECYCLO, et autres lots potentiels)
+                    all_rows = df[df[c_code] == found_article_code]
+                    
+                    # C. On calcule la SOMME des quantités
+                    c_qte = st.session_state.col_qte
+                    # pd.to_numeric assure que "5" et "1" deviennent bien 6 et pas "51"
+                    total_qty = pd.to_numeric(all_rows[c_qte], errors='coerce').fillna(0).sum()
+                    
+                    # D. On construit le résultat final
+                    # On prend les infos (Libellé, EAN) de la première ligne
+                    final_item = all_rows.iloc[0].to_dict()
+                    
+                    # On ÉCRASE la quantité unitaire par la QUANTITÉ TOTALE calculée
+                    final_item[c_qte] = total_qty
+                    
+                    # Bonus : Si on a cumulé plusieurs lignes, on le signale dans le champ Lot
+                    if len(all_rows) > 1:
+                        c_lot = st.session_state.col_lot
+                        if c_lot:
+                            final_item[c_lot] = "MULTI-LOTS (CUMUL)"
+
+                    st.session_state.current_search = final_item
                     st.session_state.search_status = "found"
                 else:
                     st.session_state.current_search = None
                     st.session_state.search_status = "not_found"
+                
                 st.session_state.scan_input = ""
 
         label_scan = "SCANNER ICI"
