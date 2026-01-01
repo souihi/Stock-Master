@@ -195,7 +195,6 @@ class StockProcessor(AbstractStockProcessor):
             formatter_excel_maj(df_export, writer, "Inventaire_Complet")
         
         return buffer
-    # ... (le reste du code précédent)
 
     def search_item(self, df_source, query):
         """
