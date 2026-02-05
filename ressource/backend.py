@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import pandas as pd
 import io
-from utils import (formater_sans_decimale, nettoyer_lot, trouver_colonne, 
+from ressource.utils import (formater_sans_decimale, nettoyer_lot, trouver_colonne, 
                    charger_fichier_pandas, formatter_excel_simple, formatter_excel_maj)
 
 # --- CLASSE ABSTRAITE ---
@@ -173,13 +173,32 @@ class StockProcessor(AbstractStockProcessor):
             elif col == self.col_map_i['qte']: df_export[col] = df_final_rich['Qte_Info']
             elif col == self.col_map_i['lib']: df_export[col] = df_final_rich['Libellé']
             elif cols_meta['dispo'] and col == cols_meta['dispo']: df_export[col] = df_final_rich['Qte_Info']
-            
+
+            # --- CORRECTION DU BUG FILLNA ---
             # Logique de fallback (Info -> Terrain -> Vide)
+            
             elif cols_meta['ean'][0] and col == cols_meta['ean'][0]:
-                df_export[col] = df_final_rich[col].fillna(df_final_rich.get(f"{cols_meta['ean'][1]}_terr")).fillna("")
+                # On prépare la colonne source
+                current_col = df_final_rich[col]
+                # On cherche le nom de la colonne terrain potentielle
+                col_terr_name = f"{cols_meta['ean'][1]}_terr"
+                
+                # Si la colonne terrain existe, on s'en sert pour boucher les trous
+                if col_terr_name in df_final_rich.columns:
+                    current_col = current_col.fillna(df_final_rich[col_terr_name])
+                
+                # On finit par boucher avec du vide si toujours NaN
+                df_export[col] = current_col.fillna("")
             
             elif cols_meta['site'][0] and col == cols_meta['site'][0]:
-                df_export[col] = df_final_rich[col].fillna(df_final_rich.get(f"{cols_meta['site'][1]}_terr")).fillna(default_site)
+                current_col = df_final_rich[col]
+                col_terr_name = f"{cols_meta['site'][1]}_terr"
+                
+                if col_terr_name in df_final_rich.columns:
+                    current_col = current_col.fillna(df_final_rich[col_terr_name])
+                
+                # On finit par boucher avec le site par défaut
+                df_export[col] = current_col.fillna(default_site)
             
             # Gestion générique des autres colonnes
             else:

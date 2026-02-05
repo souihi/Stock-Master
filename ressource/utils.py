@@ -1,5 +1,6 @@
 import pandas as pd
 import warnings
+import streamlit as st
 
 warnings.filterwarnings("ignore")
 
@@ -33,36 +34,52 @@ def nettoyer_lot(valeur):
     return val
 
 def trouver_colonne(df, keywords):
-    """Cherche une colonne contenant un des mots clés"""
-    for col in df.columns:
+    """Cherche une colonne contenant un des mots clés (insensible à la casse)"""
+    # Nettoyage des noms de colonnes du DF pour la comparaison
+    cols_normalized = {c: str(c).strip().lower() for c in df.columns}
+    
+    for col_original, col_lower in cols_normalized.items():
         for k in keywords:
-            if k in col: return col
+            if k in col_lower: 
+                return col_original
     return None
 
 def charger_fichier_pandas(file):
-    """Charge un fichier CSV ou Excel en détectant l'en-tête"""
+    """Charge un fichier CSV ou Excel en détectant intelligemment l'en-tête"""
     try:
+        # 1. On lit les 20 premières lignes pour "sniffer" l'en-tête
         if file.name.endswith('.csv'):
-            df = pd.read_csv(file, header=None, nrows=20)
+            df_preview = pd.read_csv(file, header=None, nrows=20)
         else:
-            df = pd.read_excel(file, header=None, nrows=20)
+            df_preview = pd.read_excel(file, header=None, nrows=20)
         
         header_idx = 0
-        for i, row in df.iterrows():
+        found = False
+        
+        # 2. On cherche la ligne qui contient "code" ET ("lot" ou "article" ou "désignation")
+        for i, row in df_preview.iterrows():
             row_str = row.astype(str).str.lower().str.cat(sep=' ')
-            if 'code' in row_str and ('lot' in row_str or 'article' in row_str):
+            # On assouplit la condition : juste "code" et "qte" ou "code" et "lot"
+            if ('code' in row_str or 'article' in row_str) and ('qte' in row_str or 'quant' in row_str or 'stock' in row_str or 'lot' in row_str):
                 header_idx = i
+                found = True
                 break
         
+        # 3. On recharge le fichier avec le bon header
+        file.seek(0) # IMPORTANT: Rembobiner le fichier
+        
         if file.name.endswith('.csv'):
-            file.seek(0)
             df = pd.read_csv(file, header=header_idx)
         else:
             df = pd.read_excel(file, header=header_idx)
             
-        df.columns = df.columns.astype(str).str.strip().str.lower()
+        # 4. On normalise les noms de colonnes (strip espaces)
+        df.columns = df.columns.astype(str).str.strip()
+        
         return df
+
     except Exception as e:
+        st.error(f"Erreur lecture fichier : {e}")
         return None
 
 def formatter_excel_simple(df, writer, sheet_name):

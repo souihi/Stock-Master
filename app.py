@@ -1,297 +1,32 @@
 import streamlit as st
-import time
-import streamlit.components.v1 as components
-import pandas as pd
-from datetime import datetime
-from backend import StockProcessor
+from ressource.backend import StockProcessor
+from views.comparaison_view import render_comparaison_view
+from views.inventaire_tournant_view import render_inventory_view
 
-# --- CONFIGURATION ---
+# 1. CONFIGURATION GLOBALE
 st.set_page_config(page_title="Comparateur Stock", layout="wide")
-# --- CHARGEMENT DU CSS ---
-with open("style.css") as f:
+
+# 2. CHARGEMENT ASSETS (CSS)
+with open("assets/style.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# --- SESSION STATE ---
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'current_search' not in st.session_state:
-    st.session_state.current_search = None
-if 'scan_input' not in st.session_state:
-    st.session_state.scan_input = ""
+# 3. INITIALISATION SESSION (STATE)
+if 'history' not in st.session_state: st.session_state.history = []
+if 'current_search' not in st.session_state: st.session_state.current_search = None
+if 'scan_input' not in st.session_state: st.session_state.scan_input = ""
 
+# 4. INSTANCIATION DES SERVICES (BACKEND)
 processor = StockProcessor()
 
-# --- APPLICATION ---
+# 5. ROUTAGE (LAYOUT PRINCIPAL)
 st.title("STOCKITO")
 
-# Création des onglets
 tab_global, tab_tournant = st.tabs(["MAGASIN VS POUS", "INVENTAIRE TOURNANT"])
 
-
 with tab_global:
-    col_up1, col_up2 = st.columns(2)
-    with col_up1:
-        f_terrain = st.file_uploader("STOCK MAGASIN", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="t_up")
-    with col_up2:
-        f_info = st.file_uploader("STOCK POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="i_up")
-    if f_terrain and f_info:
-        # Utilisation du backend
-        if processor.load_data(f_terrain, f_info):
-            
-            # --- TRAITEMENT via Backend ---
-            merged = processor.process_comparison()
+    # On délègue tout l'affichage à la Vue dédiée
+    render_comparaison_view(processor)
 
-            # --- INTERFACE ---
-            nb_ecarts = len(merged[merged['Ecart'] != 0])
-            st.markdown(f'<div class="metric-box">⚠️ Nombre d\'articles avec écarts : {nb_ecarts}</div>', unsafe_allow_html=True)
-            st.write("")
-
-            st.info("Corrigez la colonne **'Qte Info (Logiciel)'** ci-dessous.")
-            
-            df_display = merged[merged['Ecart'] != 0].copy()
-
-            edited_df = st.data_editor(
-                df_display,
-                column_order=['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Qte_Info', 'Ecart'],
-                disabled=['Code', 'Libellé', 'Lot', 'Qte_Terrain', 'Ecart'],
-                column_config={
-                    "Qte_Info": st.column_config.NumberColumn("Qte Info (Logiciel)", step=1, required=True),
-                    "Qte_Terrain": st.column_config.NumberColumn("Qte Terrain", format="%d"),
-                    "Ecart": st.column_config.NumberColumn("Ecart", format="%d"),
-                },
-                use_container_width=True,
-                num_rows="fixed",
-                key="editor"
-            )
-
-            # ALERTES
-            edited_df['Ecart_Final'] = edited_df['Qte_Info'] - edited_df['Qte_Terrain']
-            changes = edited_df[edited_df['Qte_Info'] != edited_df['_Original_Info']]
-            
-            if not changes.empty:
-                st.write("### Actions requises")
-                for idx, row in changes.iterrows():
-                    st.markdown(f"""
-                    <div class="alert-box">
-                        <b>{row['Code']} ({row['Libellé']})</b> : Mettre à jour stock informatique à <b>{int(row['Qte_Info'])}</b>.
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            st.divider()
-
-            # --- EXPORTS ---
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.subheader("1. Rapport d'Écarts")
-                # Appel Backend pour génération Excel
-                buffer_rapport = processor.generate_diff_report(edited_df)
-                date_str = datetime.now().strftime("%d-%m-%Y_%Hh%M")
-                nom_fichier_rapport = f"Rapport_Ecarts_{date_str}.xlsx"
-                st.download_button("Télécharger Rapport", buffer_rapport, nom_fichier_rapport, mime="application/vnd.ms-excel", use_container_width=True)
-
-            with c2:
-                st.subheader("2. Fichier Final")
-                st.caption("Génère l'inventaire complet au format du fichier informatique.")
-                
-                confirm_update = st.checkbox("Je confirme vouloir générer le fichier de mise à jour complet", key="confirm_global")
-                
-                if confirm_update:
-                    # Appel Backend pour la logique complexe de reconstruction
-                    buffer_maj = processor.generate_final_update(edited_df, merged)
-                    
-                    date_str = datetime.now().strftime("%d-%m-%Y %Hh%M")
-                    nom_fichier_final = f"STOCK MAGASIN {date_str}.xlsx"
-                    
-                    st.download_button(
-                        "Mise à jour du stock magasin", 
-                        buffer_maj, 
-                        nom_fichier_final, 
-                        mime="application/vnd.ms-excel", 
-                        type="primary", 
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("Veuillez cocher la case pour générer le fichier.")
-        else:
-             st.error("Colonnes introuvables. Vérifiez les fichiers.")
-    else:
-        st.info("En attente des fichiers...")
-
-# ==============================================================================
-# ONGLET 2 : INVENTAIRE TOURNANT (OPTIMISÉ MOBILE/TABLETTE)
-# ==============================================================================
 with tab_tournant:
-    # --- 1. CHARGEMENT FICHIER (Dans un expander pour gagner de la place après chargement) ---
-    with st.expander("Charger fichier POUS", expanded=True if 'df_ref' not in st.session_state else False):
-        file_ref = st.file_uploader("Fichier POUS", type=["xlsx", "xls", "csv", "ods", "xlsm"], key="ref_up")
-    
-    if file_ref:
-        if 'df_ref' not in st.session_state or st.session_state.get('file_ref_name') != file_ref.name:
-            from utils import charger_fichier_pandas, trouver_colonne
-            df = charger_fichier_pandas(file_ref)
-            st.session_state.df_ref = df
-            st.session_state.file_ref_name = file_ref.name
-            st.session_state.col_code = trouver_colonne(df, ['code', 'article', 'ref'])
-            st.session_state.col_qte = trouver_colonne(df, ['qte', 'quant', 'stock'])
-            st.session_state.col_lib = trouver_colonne(df, ['lib', 'designation'])
-            st.session_state.col_lot = trouver_colonne(df, ['lot', 'serie'])
-            st.toast(f"Fichier chargé : {len(df)} lignes")
-
-        df = st.session_state.df_ref
-        
-        # --- 2. BARRE DE SCAN---
-        def run_search():
-            query = st.session_state.scan_input
-            if query:
-                # 1. Recherche initiale (Trouver au moins une ligne qui matche le scan)
-                mask = pd.Series(False, index=df.index)
-                for col in df.columns:
-                    try:
-                        mask = mask | (df[col].astype(str).str.strip().str.upper() == str(query).strip().upper())
-                    except: pass
-                
-                res_prelim = df[mask]
-                
-                if not res_prelim.empty:
-                    # --- NOUVELLE LOGIQUE D'AGRÉGATION ---
-                    # A. On identifie le Code Article unique de l'objet trouvé
-                    c_code = st.session_state.col_code
-                    found_article_code = res_prelim.iloc[0][c_code]
-                    
-                    # B. On va chercher TOUTES les lignes du fichier qui ont ce code article
-                    # (Cela inclut STOCK, RECYCLO, et autres lots potentiels)
-                    all_rows = df[df[c_code] == found_article_code]
-                    
-                    # C. On calcule la SOMME des quantités
-                    c_qte = st.session_state.col_qte
-                    # pd.to_numeric assure que "5" et "1" deviennent bien 6 et pas "51"
-                    total_qty = pd.to_numeric(all_rows[c_qte], errors='coerce').fillna(0).sum()
-                    
-                    # D. On construit le résultat final
-                    # On prend les infos (Libellé, EAN) de la première ligne
-                    final_item = all_rows.iloc[0].to_dict()
-                    
-                    # On ÉCRASE la quantité unitaire par la QUANTITÉ TOTALE calculée
-                    final_item[c_qte] = total_qty
-                    
-                    # Bonus : Si on a cumulé plusieurs lignes, on le signale dans le champ Lot
-                    if len(all_rows) > 1:
-                        c_lot = st.session_state.col_lot
-                        if c_lot:
-                            final_item[c_lot] = "MULTI-LOTS (CUMUL)"
-
-                    st.session_state.current_search = final_item
-                    st.session_state.search_status = "found"
-                else:
-                    st.session_state.current_search = None
-                    st.session_state.search_status = "not_found"
-                
-                st.session_state.scan_input = ""
-
-        label_scan = "SCANNER ICI"
-        st.text_input(label_scan, key="scan_input", on_change=run_search, placeholder="Cliquez ici pour scanner...")
-        
-        # Script Focus (Version Timestamp)
-        timestamp = int(time.time() * 1000)
-            
-        components.html(f"""
-                <script>
-                    var input = window.parent.document.querySelector('input[aria-label="{label_scan}"]');
-                    if (input) {{
-                        input.focus();
-                        input.select();
-                    }}
-                    // Force re-load timestamp: {timestamp}
-                </script>
-            """, height=0, width=0)
-
-        
-        st.caption("Le curseur est verrouillé sur cette case.")
-
-        st.divider()
-
-        # --- 3. ZONE DE RÉSULTAT (Style "Carte" pour mobile) ---
-        if st.session_state.get('current_search'):
-            item = st.session_state.current_search
-            c_code = st.session_state.col_code
-            c_lib = st.session_state.col_lib
-            c_qte = st.session_state.col_qte
-            qte_info = item.get(c_qte, 0)
-
-            # Conteneur visuel pour bien délimiter le résultat
-            with st.container(border=True):
-                st.markdown(f"<div class='big-code'>CODE : {item.get(c_code)}</div>", unsafe_allow_html=True)
-                
-                # Le libellé en dessous
-                st.markdown(f"<div class='article-lib'>{item.get(c_lib)}</div>", unsafe_allow_html=True)
-                
-                col_metric, col_actions = st.columns([1, 1])
-                
-                with col_metric:
-                    # Le CSS s'occupera de centrer ça uniquement sur mobile
-                    st.metric("STOCK POUS", int(qte_info) if pd.notna(qte_info) else 0)
-                # Boutons d'action
-
-            with col_actions:
-                    st.write("") # Espacement
-                    # Bouton OK vert et large
-                    if st.button("STOCK OK", use_container_width=True):
-                        st.session_state.history.insert(0, {
-                            "Heure": datetime.now().strftime("%H:%M"),
-                            "Code": item.get(c_code),
-                            "Libellé": item.get(c_lib),
-                            "Ancien": int(qte_info),
-                            "Nouveau": int(qte_info),
-                            "Statut": "OK"
-                        })
-                        st.toast("Confirmé !")
-                        st.session_state.current_search = None
-                        st.rerun()
-
-            # Zone de correction (Séparée pour éviter les clics accidentels)
-            with st.expander("⚠️ Faire une correction de stock", expanded=True):
-                c_saisie, c_valide = st.columns([2, 1])
-                
-                with c_saisie:
-                    # value=None permet d'avoir la case vide pour taper direct
-                    # step=1 assure qu'on tape des entiers
-                    new_qte = st.number_input(
-                        "Quantité Réelle", 
-                        value=None, 
-                        step=1, 
-                        placeholder="Tapez le stock...", 
-                        label_visibility="collapsed"
-                    )
-                    
-                with c_valide:
-                    if st.button("CORRIGER",type="primary", use_container_width=True):
-                        # On vérifie que l'utilisateur a bien tapé quelque chose
-                        if new_qte is not None:
-                            valeur_propre = int(new_qte)
-                            ancien_propre = int(qte_info) if pd.notna(qte_info) else 0
-                            
-                            st.session_state.history.insert(0, {
-                                "Heure": datetime.now().strftime("%H:%M"),
-                                "Code": item.get(c_code),
-                                "Libellé": item.get(c_lib),
-                                "Ancien": ancien_propre,
-                                "Nouveau": valeur_propre,
-                                "Statut": "CORRECTION"
-                            })
-                            st.toast("Correction sauvegardée", icon="💾")
-                            st.session_state.current_search = None
-                            st.rerun()
-                        else:
-                            st.warning("Saisissez une quantité.")
-
-        elif st.session_state.get('search_status') == "not_found":
-            st.error("❌ Article inconnu / Code barre non trouvé")
-
-        # --- 4. HISTORIQUE) ---
-        st.write("")
-        with st.expander(f"📝 Historique de session ({len(st.session_state.history)})", expanded=False):
-            if st.session_state.history:
-                st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
-            else:
-                st.caption("Aucun scan effectué.")
+    # On délègue tout l'affichage à la Vue dédiée
+    render_inventory_view(processor)
